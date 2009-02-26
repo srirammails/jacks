@@ -31,18 +31,6 @@ package org.jhserv.jacks.httpservice;
 public class BundleConstants {
 
     /**
-     * Netty Server socket factory service
-     */
-    public static final String NETTY_SERVER_SOCKET_FACTORY_CLASS =
-            "org.netty.jboss.channel.socket.ServerSocketChannelFactory";
-
-    /**
-     * Netty Client socket factory service
-     */
-    public static final String NETTY_CLIENT_SOCKET_FACTORY_CLASS =
-            "org.jboss.netty.channel.socket.ClientSocketChannelFactory";
-
-    /**
      * Where to find our configuration files
      */
     public static final String CONFIG_DIR = "./conf";
@@ -50,9 +38,7 @@ public class BundleConstants {
      * What our configuration files must start with. NOTE: This must be all
      * lower case becuase when we are filtering the files we lowercase them first.
      */
-    public static final String CONFIG_FILE_FILTER = "jhservhttpservice";
-
-    
+    public static final String CONFIG_FILE_FILTER = "jackshttpservice";
 
     /*
      * This section contains our configuration keys for both the properties
@@ -71,27 +57,16 @@ public class BundleConstants {
      */
     public static final String CONFIG_OVERRIDE_ADMIN =
             "OverRideConfigAdmin";
-    
+
     /**
      * The port that the server should connect to. 
      */
     public static final String CONFIG_PORT = "port";
 
     /**
-     * The SSL Port the server should listen on.
-     */
-    public static final String CONFIG_SSL_PORT = "ssl.port";
-
-
-    /**
-     * IP Address to bind to. If this is not defined then all IP address on the
-     * machine will be bound.
-     */
-    public static final String CONFIG_IP_ADDRESS = "ip.address";
-
-    /**
      * This is the default HttpService Property for the port to use. This property
-     * is defined in the framework system property file.
+     * is defined in the framework system property file. And can be defined in
+     * our property file as well.
      */
     public static final String CONFIG_OSGI_PORT = "org.osgi.service.http.port";
 
@@ -100,6 +75,12 @@ public class BundleConstants {
      * is port 80
      */
     public static final String CONFIG_OSGI_PORT_DEFAULT = "80";
+
+
+    /**
+     * The SSL Port the server should listen on.
+     */
+    public static final String CONFIG_SSL_PORT = "ssl.port";
 
     /**
      * This is the default HttpService Property for the Secured port address.
@@ -113,17 +94,57 @@ public class BundleConstants {
      */
     public static final String CONFIG_OSGI_SECURE_PORT_DEFAULT = "443";
 
-    /**
-     * True/False property to indicate wheather or not SSL is enabled on this port.
-     */
-    public static final String CONFIG_ENABLE_SSL = "ssl";
 
     /**
-     * You set this if this server to be bound to another service. The service
-     * is identified by the port it is running. What this means is that lets say
-     * we have setup a service on port 80 and now we also want to setup another
-     * port that all servlets registerd on the port 80 service should also
-     * be serviced on this port. 
+     * IP Address to bind to. If this is not defined then all IP address on the
+     * machine will be bound.
      */
-    public static final String  CONFIG_BIND_TO_PORT = "bind.to.port";
+    public static final String CONFIG_IP_ADDRESS = "IPAddress";
+
+    /**
+     * Host name we should look for on requests. If this is defined any other
+     * Host name than the one defined will get rejected.
+     */
+    public static final String CONFIG_HOSTNAME = "HostName";
+
+    /**
+     * This is the base name for defining vertual Host names.
+     */
+    public static final String CONFIG_VHOSTS = "VHostName";
+
+    /**
+     * Connection timeouts in millis.
+     */
+    public static final String CONFIG_CONNECT_TIMEOUT = "connectTimeoutMillis";
+
+    /**
+     * Connection Write timeouts in millis
+     */
+    public static final String CONFIG_WRITE_TIMEOUT = "writeTimeoutMillis";
+
+    /**
+     * Connection should reuse Addresses.
+     */
+    public static final String  CONFIG_REUSE_ADDRESS = "reuseAddress";
+
+    /**
+     * Socket receive buffer size.
+     */
+    public static final String  CONFIG_RECEIVE_BUFFER_SIZE = "receiveBufferSize";
+
+    /**
+     * Socket send buffer size.
+     */
+    public static final String  CONFIG_SEND_BUFFER_SIZE = "sendBufferSize";
+
+    /**
+     * should connections be kept alive?
+     */
+    public static final String  CONFIG_KEEP_ALIVE = "keepAlive";
+
+    /**
+     * Should tcp no delay be turned on?
+     */
+    public static final String  CONFIG_TCP_NODELAY = "tcpNoDelay";
+
 }

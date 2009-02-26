@@ -25,7 +25,6 @@ import java.util.Dictionary;
 import java.util.Enumeration;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
 import org.jboss.netty.channel.socket.ServerSocketChannelFactory;
 import org.jhserv.jacks.httpservice.servicetracker.LogTracker;
 import org.osgi.framework.BundleContext;
@@ -41,7 +40,7 @@ import org.osgi.util.tracker.ServiceTrackerCustomizer;
  *
  * @author rjackson
  */
-public class HttpServer implements ServiceTrackerCustomizer {
+public class HttpServer {
 
     // To avoid Threading issues all class vars must be initilized either in
     // the constructor or in the start method. After that everything must be
@@ -51,10 +50,11 @@ public class HttpServer implements ServiceTrackerCustomizer {
     private final LogTracker log = LogTracker.getInstance();
     private volatile BundleContext context;
     /**
-     * Service tracker tracking the Netty Server socket factory service.
+     * Service tracker tracking the Netty Server socket factory service. This will
+     * be set in the start method and then read only after that. Actually it is
+     * only used in the stop method to stop the tracker.
      */
-    private final AtomicReference<ServiceTracker> nettyTracker =
-            new AtomicReference<ServiceTracker>();
+    private ServiceTracker nettyTracker;
 
     // The service Name that the netty bundle provides.
     public static final String NETTY_SERVICE = ServerSocketChannelFactory.class.getName();
@@ -63,12 +63,6 @@ public class HttpServer implements ServiceTrackerCustomizer {
      * Are we started?
      */
     private final AtomicBoolean started = new AtomicBoolean();
-
-    /**
-     * Is the Netty Service Availible?
-     */
-    private final AtomicBoolean nettyAvailible = new AtomicBoolean();
-
 
     /***
      * Internal Configuration data for our server. This is basicly a copy of the
@@ -85,14 +79,18 @@ public class HttpServer implements ServiceTrackerCustomizer {
     /**
      * Method to start our service. It should be noted that this method does 
      * not actually setup our server it just starts the tracker which will then 
-     * start our server if the Netty service is avalilible. 
+     * start our server if the Netty service is avalilible.
+     *
      * @param config Server configuration data. The HttpManagedServiceFactory 
      * which calls this method must ensure that this configuration data is valid
      * befor calling this method. 
      */
     public void start(Dictionary config) {
 
-
+        copyConfig(config);
+        // Start our tracker
+        nettyTracker = new ServiceTracker(context, NETTY_SERVICE, new nettyTrackerCustomizer());
+        nettyTracker.open();
     }
 
 
@@ -100,6 +98,8 @@ public class HttpServer implements ServiceTrackerCustomizer {
      * Called by the HttpManagedServiceFactory to stop this server/service.
      */
     public void stop() {
+        nettyTracker.close();
+        // Add code to stop our server here....
 
     }
 
@@ -112,43 +112,6 @@ public class HttpServer implements ServiceTrackerCustomizer {
      */
     public void modifiedConfig(Dictionary config) {
 
-    }
-
-    /**
-     * Called when the Netty ServerSocketChannelFactory service is made availible.
-     * On bundle startup if the netty bundle is already loaded this will get called
-     * imidiatly. If the Netty bundle has not been started yet then this will get
-     * called when the Netty bundle is started.
-     *
-     * @param sr Service Referance to the netty service.
-     * @return
-     */
-    @Override
-    public Object addingService(ServiceReference sr) {
-        throw new UnsupportedOperationException("Not supported yet.");
-    }
-
-    /**
-     * This is called when the Netty ServerSocketChannelFactory we are traking
-     * is modified. In all reality we should not see this.
-     * @param sr
-     * @param service
-     */
-    @Override
-    public void modifiedService(ServiceReference sr, Object service) {
-        throw new UnsupportedOperationException("Not supported yet.");
-    }
-
-    /**
-     * This is called if the Netty ServerSocketCannelFactory we aree tracking
-     * is going out of service. In this case we must stop our service and server.
-     *
-     * @param sr
-     * @param service
-     */
-    @Override
-    public void removedService(ServiceReference sr, Object service) {
-        throw new UnsupportedOperationException("Not supported yet.");
     }
 
     /**
@@ -165,7 +128,58 @@ public class HttpServer implements ServiceTrackerCustomizer {
             String key = keys.nextElement();
             config.put(key, (String)cmConfig.get(key));
         }
+        if(cmConfig.size() != config.size()) {
+            log.error("When copying the Dictionary configiration data the element sizes did not match!");
+        }
     }
 
+    //************* Private inner class ****************
+    private class nettyTrackerCustomizer implements ServiceTrackerCustomizer {
+
+        /**
+         * Called when the Netty ServerSocketChannelFactory service is made availible.
+         * On bundle startup if the netty bundle is already loaded this will get called
+         * imidiatly. If the Netty bundle has not been started yet then this will get
+         * called when the Netty bundle is started.
+         *
+         * This is where all of the real work gets done for starting the server.
+         *
+         * @param sr Service Referance to the netty service.
+         * @return
+         */
+        @Override
+        public Object addingService(ServiceReference sr) {
+            throw new UnsupportedOperationException("Not supported yet.");
+        }
+
+        /**
+         * This is called when the Netty ServerSocketChannelFactory we are traking
+         * is modified. We should not see this but if we do we log it so we can
+         * track it down and understand what needs to go here.
+         *
+         * @param sr
+         * @param service
+         */
+        @Override
+        public void modifiedService(ServiceReference sr, Object notused) {
+            throw new UnsupportedOperationException("Not supported yet.");
+        }
+
+        /**
+         * This is called if the Netty ServerSocketCannelFactory we are tracking
+         * is going out of service. In this case we must stop our service and server.
+         *
+         * This and the stop method are where the service and the server get
+         * stoped.
+         *
+         * @param sr
+         * @param service
+         */
+        @Override
+        public void removedService(ServiceReference sr, Object notused) {
+            throw new UnsupportedOperationException("Not supported yet.");
+        }
+
+    }
 
 }
