@@ -23,6 +23,8 @@ package org.jhserv.jacks.httpservice.server;
 
 import java.util.Dictionary;
 import java.util.Enumeration;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.jboss.netty.channel.socket.ServerSocketChannelFactory;
@@ -110,10 +112,18 @@ public class HttpServer {
      * to unregister the underlying HttpService.
      * @param config New configuration data.
      */
-    public void modifiedConfig(Dictionary config) {
+    public void update(Dictionary config) {
 
     }
 
+    /**
+     * Get a list of ports used by this server. 
+     * @return
+     */
+    public List<String> getPorts() {
+        return null;
+    }
+    
     /**
      * This method will only be called by the start method and then only if 
      * we have not been already started. 
@@ -131,6 +141,14 @@ public class HttpServer {
         if(cmConfig.size() != config.size()) {
             log.error("When copying the Dictionary configiration data the element sizes did not match!");
         }
+    }
+
+    /**
+     * Get the current configuration of this server. 
+     * @return
+     */
+    public Map<String, String> getConfig() {
+        return config;
     }
 
     //************* Private inner class ****************

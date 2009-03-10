@@ -26,10 +26,13 @@ import java.io.File;
 import java.io.FileFilter;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Dictionary;
 import java.util.Hashtable;
+import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -60,7 +63,8 @@ public class HttpManagedServiceFactory implements ManagedServiceFactory {
     private final Map<String, HttpServer> managedServices =
             new ConcurrentHashMap<String, HttpServer>();
     // our started servers <port, HttpServer instance> for unmanaged services
-    // only.
+    // only. NOTE: When a managed service is migrated to a unmanaged service
+    // the service pid will be used as the key instead of the port number.
     private final Map<String, HttpServer> unManagedServices =
             new ConcurrentHashMap<String, HttpServer>();
 
@@ -76,12 +80,9 @@ public class HttpManagedServiceFactory implements ManagedServiceFactory {
     // almost always be on another thread than what this code would normally
     // be running on. So this must be thread safe.
     private final AtomicBoolean cmAvailible = new AtomicBoolean();
-    // Flag that indicates wheather or not we have started. We don't really
-    // consider ourself started until the start method has completed sucessfully.
-    // This field has to be thread safe because we are going to be starting
-    // some trackers that will examin this to see if they should or should not
-    // do something. Which may happen while we are still in the start method.
-    private final AtomicBoolean started = new AtomicBoolean();
+
+    // Have we started any servers yet?
+    private final AtomicBoolean serversStarted = new AtomicBoolean();
 
     // This will be set at start up and then read only after that. Mostly just
     // to stop it.
@@ -110,8 +111,7 @@ public class HttpManagedServiceFactory implements ManagedServiceFactory {
      *
      */
     public void start() {
-        log.info("Starting the HttpManagedServiceFactory...... " + Thread.currentThread().getId());
-
+        log.info("Starting the HttpManagedServiceFactory...... ");
 
         cmTracker = new ServiceTracker(context, ConfigurationAdmin.class.getCanonicalName(),
                 new cmTrackerCustomizer() );
@@ -130,11 +130,8 @@ public class HttpManagedServiceFactory implements ManagedServiceFactory {
             // ConfiguationAdmin service will start to spawn threads and
             // call our updated method which will then register our
             // HttpService stuff..
-            Hashtable properties = new Hashtable();
+            Hashtable<String, String> properties = new Hashtable<String, String>();
             properties.put( Constants.SERVICE_PID, factoryPid);
-            // Need to set this here because our update method may be called
-            // before the registration returns and we are ready to go..
-            started.set(true);
             registration.set(context.registerService(
                     ManagedServiceFactory.class.getName(), this, properties));
             log.debug("HttpManagedService registered and started...");
@@ -144,11 +141,36 @@ public class HttpManagedServiceFactory implements ManagedServiceFactory {
             // service shows up we will add our self as a managed service.
             log.debug("ConfigurationAdmin service unavalible starting service as a" +
                     " unmanaged service.");
-            // Need to implement this ...
-            
+            if(confMap.isEmpty()) {
+                // Should not get this because of default config. but Still
+                log.debug("No servers defined at this time. Waitting for Configuration" +
+                        " Admin service to start and pass us our configuration.");
+                return;
+            }
+
+            Set<String> keySet = confMap.keySet();
+            for(String key: keySet) {
+                Properties props = confMap.get(key);
+                List<String> reqPorts = findReqPorts(props);
+                if(arePortsAvailable(reqPorts)) {
+                    HttpServer server = new HttpServer(context);
+                    server.start(props);
+                    unManagedServices.put(reqPorts.get(0), server);
+                } else {
+                    StringBuilder sb = new StringBuilder();
+                    sb.append("The requested port(s) ( ");
+                    for(String port : reqPorts) {
+                        sb.append(port + ",");
+                    }
+                    sb.append(" ) defined in configuration file ");
+                    sb.append(key);
+                    sb.append(" are already in use. Skipping this configuration file.");
+                }
+            }
+            if(!unManagedServices.isEmpty()) {
+                serversStarted.set(true);
+            }
         }
-
-
     }
 
     /**
@@ -159,8 +181,32 @@ public class HttpManagedServiceFactory implements ManagedServiceFactory {
         cmTracker.close();
         context.ungetService(registration.get().getReference());
         registration.set(null);
-        // Add code to shut down our servers
-
+        // Stop our servers/Services
+        if(!managedServices.isEmpty()) {
+            Set<String> pids = managedServices.keySet();
+            for(String key: pids) {
+                HttpServer server = managedServices.remove(key);
+                server.stop();
+                server = null;
+            }
+            if(!managedServices.isEmpty()) {
+                log.debug("When shutting down we did not clean our managedServices map out completly!");
+                log.debug("We have " + managedServices.size()+ " services still defined.");
+            }
+        }
+        if(!unManagedServices.isEmpty()) {
+            Set<String> pids = unManagedServices.keySet();
+            for(String key: pids) {
+                HttpServer server = unManagedServices.remove(key);
+                server.stop();
+                server = null;
+            }
+            if(!unManagedServices.isEmpty()) {
+                log.debug("When shutting down we did not clean our unManagedServices map out completly!");
+                log.debug("We have " + unManagedServices.size() + " services still defined.");
+            }
+        }
+        serversStarted.set(false);
     }
 
     @Override
@@ -168,16 +214,102 @@ public class HttpManagedServiceFactory implements ManagedServiceFactory {
         return "jhserv.org HTTPService ManagedService Factory";
     }
 
+    /**
+     * Called when we have new or updated configuration data. This method will
+     * start are servers when we are running as a managed service (ConfigAdmin
+     * service is running).
+     *
+     * @param pid
+     * @param config
+     * @throws org.osgi.service.cm.ConfigurationException
+     */
     @Override
     public void updated(String pid, Dictionary config) throws ConfigurationException {
-        log.debug("HttpManagedServiceFactory updated called with pid: " + pid);
+        // Validate configuration first... Throws ConfigurationException if
+        // validation fails.
+        Utils.validateConf(config);
+
+        // existing service?
+        if(managedServices.containsKey(pid)) {
+            managedServices.get(pid).update(config);
+            return;
+        }
+
+        // was service migrated to unManagedService?
+        if(unManagedServices.containsKey(pid)) {
+            HttpServer server = unManagedServices.remove(pid);
+            managedServices.put(pid, server);
+            server.update(config);
+            return;
+        }
+
+        // NOTE: At this point there should be at least one port defined the
+        // validateConf call above checks that and will throw an exception if
+        // at least one port is not defined.
+        List<String> reqPorts = findReqPorts(config);
+
+        // did service start out as a unmanaged service?
+        if(!unManagedServices.isEmpty()) {
+            for(String port: reqPorts) {
+                if(unManagedServices.containsKey(port)) {
+                    HttpServer server = unManagedServices.remove(port);
+                    managedServices.put(pid, server);
+                    server.update(config);
+                    return;
+                }
+            }
+            
+        }
+
+        // If we got this far then a server for this configuration has not
+        // been started so lets do that.
+        log.debug("A new configuration was recieved from the Configuration Admin service." +
+                " With a PID of : " + pid);
+
+        // Are the requested ports availible?
+        if(arePortsAvailable(reqPorts))  {
+            log.debug("The requested ports are already in use. Throwing ConfigurationException.");
+            log.debug("Requested ports : " + reqPorts.toString());
+            ConfigurationException ce = new ConfigurationException(BundleConstants.CONFIG_PORT,
+                    "The requested ports for this configuration are already in use.");
+        }
+        
+        log.debug("Starting new Server.");
+        HttpServer server = new HttpServer(context);
+        server.start(config);
+        managedServices.put(pid, server);
+
+        if(!serversStarted.get()) {
+            serversStarted.set(true);
+        }
 
     }
 
+    /**
+     * Called when one of our configurations have been deleted. In this case we
+     * will stop the server that is asciated with this configuration.
+     * 
+     * @param pid
+     */
     @Override
     public void deleted(String pid) {
-        log.info("deleted called with pid: " + pid);
-        // Add code to stop the server asciated with this pid...
+        log.info("Stoping HttpService asciated with PID : " + pid
+                + " because configuration was deleted.");
+        if(managedServices.containsKey(pid)) {
+            HttpServer server = managedServices.remove(pid);
+            server.stop();
+        } else {
+            // We really should not get here but I can think of a case that it
+            // might happen so I put this here to handle it.
+            if(unManagedServices.containsKey(pid)) {
+                HttpServer server = unManagedServices.remove(pid);
+                server.stop();
+            }
+        }
+        if(managedServices.isEmpty() && unManagedServices.isEmpty()) {
+            serversStarted.set(false);
+        }
+        
     }
 
     /**
@@ -215,10 +347,18 @@ public class HttpManagedServiceFactory implements ManagedServiceFactory {
                     Properties props = new Properties();
                     inFile = new FileInputStream(f);
                     props.load(inFile);
+                    Utils.validateConf(props);
                     String key = f.getName().split(".")[0];
                     confMap.put(key, props);
                 } catch(IOException e) {
                     log.warn("Reading " + f.getAbsoluteFile() + " caused a IOException.", e);
+                } catch(ConfigurationException e) {
+                    StringBuilder sb = new StringBuilder();
+                    sb.append("Configuration File: " + f.getName() + " is invalid!\n");
+                    sb.append("Property: " + e.getProperty() + "\n");
+                    sb.append("Reason  : " + e.getReason() + "\n");
+                    sb.append("This configuration file will be skipped.");
+                    log.warn(sb.toString());
                 } finally {
                     if(inFile != null) {
                         try {
@@ -285,7 +425,7 @@ public class HttpManagedServiceFactory implements ManagedServiceFactory {
                         "Adding configuration data found in config files or our default config.");
                 for(String confKey: confData.keySet()) {
                     Properties props = confData.get(confKey);
-                    Configuration caData = (Configuration)ca.createFactoryConfiguration(factoryPid);
+                    Configuration caData = ca.createFactoryConfiguration(factoryPid);
                     caData.update(props);
                     log.debug("created new CM configuration...");
                     StringBuilder sb = new StringBuilder();
@@ -368,6 +508,110 @@ public class HttpManagedServiceFactory implements ManagedServiceFactory {
         return null;
     }
 
+    /**
+     * register the managed service factory if it is not already registered. This is 
+     * primarily used to start/restart the factory when the configuration admin 
+     * service is registered after we have already started. 
+     */
+    private void registerFactory() {
+        Hashtable<String, String> properties = new Hashtable<String, String>();
+        properties.put(Constants.SERVICE_PID, factoryPid);
+        registration.set(context.registerService(
+                ManagedServiceFactory.class.getName(), this, properties));
+        log.debug("HttpManagedService registered and started...");
+    }
+
+    /**
+     * unregister the managed service factory in the case that the configuration
+     * admin service goes away while we are running.
+     */
+    private void unregisterFactory() {
+        context.ungetService(registration.get().getReference());
+        registration.set(null);
+        // Move our managed services to unmanaged services..
+        if(!managedServices.isEmpty()) {
+            Set<String> pids = managedServices.keySet();
+            for(String key: pids) {
+                HttpServer server = managedServices.remove(key);
+                unManagedServices.put(key, server);
+            }
+            if(!managedServices.isEmpty()) {
+                log.debug("In unregisterFactory we did not migrate all of our servers.");
+                log.debug("We had " + managedServices.size() + " servers left.");
+            }
+        }
+    }
+
+    /**
+     * Query all the running servers and verify that the requested port(s) are not 
+     * already in use. 
+     * 
+     * @param conf
+     * @return
+     */
+    private boolean arePortsAvailable(List<String> reqPorts) {
+        // Gather the ports alread in use.
+        List<String> usedPorts = new ArrayList<String>();
+        if(!managedServices.isEmpty()) {
+            Set<String> pids = managedServices.keySet();
+            for(String key: pids) {
+                usedPorts.addAll(managedServices.get(key).getPorts());
+            }
+        }
+        if(!unManagedServices.isEmpty()) {
+            Set<String> pids = unManagedServices.keySet();
+            for(String key: pids) {
+                usedPorts.addAll(unManagedServices.get(key).getPorts());
+            }
+        }
+        // Really should not see this but if we have not used any ports then 
+        // all ports are availible.
+        if(usedPorts.isEmpty()) {
+            return true;
+        }
+
+        for(String rPort: reqPorts) {
+            if(usedPorts.contains(rPort)) {
+                log.debug("The requested port " + rPort + " is already in use.");
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Get all requested port(s) defined in the configuration dictionary. 
+     * 
+     * @param conf
+     * @return
+     */
+    private List<String> findReqPorts(Dictionary conf) {
+        List<String> reqPorts = new ArrayList<String>();
+        
+        String value = (String)conf.get(BundleConstants.CONFIG_PORT);
+        if(value != null) {
+            reqPorts.add(value);
+        } else {
+            // Only put one of these in because they have to be equal.
+            value = (String)conf.get(BundleConstants.CONFIG_OSGI_PORT);
+            if(value != null) {
+                reqPorts.add(value);
+            }
+        }
+        value = (String)conf.get(BundleConstants.CONFIG_SSL_PORT);
+        if(value != null) {
+            reqPorts.add(value);
+        } else {
+            // Only put one of these in because they have to be equal.
+            value = (String)conf.get(BundleConstants.CONFIG_OSGI_SECURE_PORT);
+            if(value != null) {
+                reqPorts.add(value);
+            }
+        }
+
+        return reqPorts;
+    }
+
     /**************************************************************************
      * Inner classes
      */
@@ -382,6 +626,12 @@ public class HttpManagedServiceFactory implements ManagedServiceFactory {
         public Object addingService(ServiceReference sr) {
             cmAvailible.set(true);
             log.debug("Configuration Admin Service added to our tracker. ");
+            // If we have started some servers and factory not running..
+            // or otherwords we are out of our setup stage.
+            if(serversStarted.get() && registration.get() == null) {
+                log.debug("Registering our HttpManagedServiceFactory..");
+                registerFactory();
+            }
             return context.getService(sr);
         }
 
@@ -394,7 +644,10 @@ public class HttpManagedServiceFactory implements ManagedServiceFactory {
         public void removedService(ServiceReference sr, Object notused) {
             cmAvailible.set(false);
             log.debug("The Configuration Admin Service has been removed from our tracker");
-            // Need to add code to deal with Config Admin going away...
+            if(registration.get() != null) {
+                log.debug("Unregistering our HttpManagedServiceFactory");
+                unregisterFactory();
+            }
         }
 
     }
