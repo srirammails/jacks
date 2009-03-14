@@ -68,6 +68,7 @@ public class HttpServerPipelineFactory implements ChannelPipelineFactory {
         this.handler = handler;
     }
 
+    @Override
     public ChannelPipeline getPipeline() throws Exception {
         // Create a default pipeline implementation.
         ChannelPipeline pipeline = new DefaultChannelPipeline();

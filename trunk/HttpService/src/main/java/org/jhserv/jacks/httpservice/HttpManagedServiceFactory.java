@@ -132,8 +132,14 @@ public class HttpManagedServiceFactory implements ManagedServiceFactory {
             // HttpService stuff..
             Hashtable<String, String> properties = new Hashtable<String, String>();
             properties.put( Constants.SERVICE_PID, factoryPid);
-            registration.set(context.registerService(
-                    ManagedServiceFactory.class.getName(), this, properties));
+            ServiceRegistration reg =
+                    context.registerService(ManagedServiceFactory.class.getName(),
+                        this, properties);
+            if(reg == null) {
+                log.debug("The returned ServiceRegistration was null!!!!!");
+            }
+            log.debug("Setting our Registration in the Start method!!!!!");
+            registration.set(reg);
             log.debug("HttpManagedService registered and started...");
             
         } else {
@@ -178,10 +184,12 @@ public class HttpManagedServiceFactory implements ManagedServiceFactory {
      */
     public void stop() {
         log.info("Stopping the HttpManagedServiceFactory....");
+        // Closing our tracker has the side affect of unregistering our
+        // HttpManagedServiceFactory if it is already registered.
+        // so we don't need to do that here.
         cmTracker.close();
-        context.ungetService(registration.get().getReference());
-        registration.set(null);
-        // Stop our servers/Services
+        
+        // Stop any managed servers that we started.
         if(!managedServices.isEmpty()) {
             Set<String> pids = managedServices.keySet();
             for(String key: pids) {
@@ -194,6 +202,7 @@ public class HttpManagedServiceFactory implements ManagedServiceFactory {
                 log.debug("We have " + managedServices.size()+ " services still defined.");
             }
         }
+        // Stop any unManaged servers that we have started.
         if(!unManagedServices.isEmpty()) {
             Set<String> pids = unManagedServices.keySet();
             for(String key: pids) {
@@ -348,7 +357,7 @@ public class HttpManagedServiceFactory implements ManagedServiceFactory {
                     inFile = new FileInputStream(f);
                     props.load(inFile);
                     Utils.validateConf(props);
-                    String key = f.getName().split(".")[0];
+                    String key = f.getName().split("\\.")[0];
                     confMap.put(key, props);
                 } catch(IOException e) {
                     log.warn("Reading " + f.getAbsoluteFile() + " caused a IOException.", e);
@@ -516,6 +525,7 @@ public class HttpManagedServiceFactory implements ManagedServiceFactory {
     private void registerFactory() {
         Hashtable<String, String> properties = new Hashtable<String, String>();
         properties.put(Constants.SERVICE_PID, factoryPid);
+        log.debug("Setting our registration in registerFactory method!!!!");
         registration.set(context.registerService(
                 ManagedServiceFactory.class.getName(), this, properties));
         log.debug("HttpManagedService registered and started...");
@@ -526,6 +536,7 @@ public class HttpManagedServiceFactory implements ManagedServiceFactory {
      * admin service goes away while we are running.
      */
     private void unregisterFactory() {
+        log.debug("Setting our registration to null in unregisterFactory!!!!!");
         context.ungetService(registration.get().getReference());
         registration.set(null);
         // Move our managed services to unmanaged services..
