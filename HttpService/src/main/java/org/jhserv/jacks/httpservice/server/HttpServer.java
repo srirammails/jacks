@@ -21,12 +21,18 @@
 
 package org.jhserv.jacks.httpservice.server;
 
+import java.net.InetSocketAddress;
 import java.util.Dictionary;
 import java.util.Enumeration;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import org.jboss.netty.bootstrap.ServerBootstrap;
+import org.jboss.netty.channel.Channel;
+import org.jboss.netty.channel.ChannelFactory;
 import org.jboss.netty.channel.socket.ServerSocketChannelFactory;
 import org.jhserv.jacks.httpservice.servicetracker.LogTracker;
 import org.osgi.framework.BundleContext;
@@ -66,6 +72,10 @@ public class HttpServer {
      */
     private final AtomicBoolean started = new AtomicBoolean();
 
+    private final AtomicReference<ServerBootstrap> serverBootstrap =
+            new AtomicReference<ServerBootstrap>();
+
+
     /***
      * Internal Configuration data for our server. This is basicly a copy of the
      * configuration data gotton from the ConfigAdminService. We must have a
@@ -73,6 +83,9 @@ public class HttpServer {
      */
     private final ConcurrentHashMap<String, String> config =
             new ConcurrentHashMap<String, String>();
+
+    private final Map<String, Channel> openChannels =
+            new ConcurrentHashMap<String, Channel>();
 
     public HttpServer(BundleContext context) {
         this.context = context;
@@ -100,9 +113,12 @@ public class HttpServer {
      * Called by the HttpManagedServiceFactory to stop this server/service.
      */
     public void stop() {
+        // NOTE: A side affect of stopping our tracker is that our server will
+        // be stoped as well.
         nettyTracker.close();
-        // Add code to stop our server here....
-
+        serverBootstrap.set(null);
+        config.clear();
+        openChannels.clear();
     }
 
     /**
@@ -123,32 +139,79 @@ public class HttpServer {
     public List<String> getPorts() {
         return null;
     }
-    
+
+    /**
+     * Get the current configuration of this server.
+     * @return
+     */
+    public Map<String, String> getConfig() {
+        return config;
+    }
+
     /**
      * This method will only be called by the start method and then only if 
      * we have not been already started. 
      * 
      * This just copies the supplied Dictionary into our local map. 
      */
-    private void copyConfig(Dictionary cmConfig) {
+    private void copyConfig(Dictionary<String, String> cmConfig) {
         config.clear();
 
-        Enumeration<String> keys = cmConfig.elements();
+        Enumeration<String> keys = cmConfig.keys();
         while(keys.hasMoreElements()) {
             String key = keys.nextElement();
-            config.put(key, (String)cmConfig.get(key));
+            log.debug("Found key : " + key);
+            log.debug("Value : " + cmConfig.get(key));
+            // Configuration Admin inserts some keys that we don't really care
+            // about but it sets the value to null so we want to catch those.
+            String value = cmConfig.get(key);
+            if(value != null) {
+                config.put(key, value);
+            }
         }
         if(cmConfig.size() != config.size()) {
             log.error("When copying the Dictionary configiration data the element sizes did not match!");
         }
     }
 
+
     /**
-     * Get the current configuration of this server. 
-     * @return
+     * Used to start our server. This will be called by our tracker when the
+     * netty service is availible.
+     *
+     * @param factory
      */
-    public Map<String, String> getConfig() {
-        return config;
+    private void startServer(ChannelFactory factory) {
+        log.debug("Actually starting our server. ");
+        ServerBootstrap bootstrap = new ServerBootstrap(factory);
+        HttpServerPipelineFactory pipeline =
+                new HttpServerPipelineFactory(new HttpRequestHandler());
+          bootstrap.setPipelineFactory(pipeline);
+          // Need to fix this to configure our options..
+          bootstrap.setOption("child.tcpNoDelay", true);
+          bootstrap.setOption("child.keepAlive", true);
+
+          // Bind and start to accept incoming connections.
+          Channel sc = bootstrap.bind(new InetSocketAddress(8080));
+          openChannels.put("8080", sc);
+          started.set(true);
+    }
+
+    private void stopServer() {
+        log.debug("Stoping our server.");
+        // Add code to stop our server here....
+        if(!openChannels.isEmpty()) {
+            Set<String> ports = openChannels.keySet();
+            for(String key: ports) {
+                Channel sc = openChannels.remove(key);
+                sc.close().awaitUninterruptibly();
+            }
+            ChannelFactory factory = (ChannelFactory)nettyTracker.getService();
+            factory.releaseExternalResources();
+        }
+        log.debug("Our server should be stopped now...");
+        started.set(false);
+
     }
 
     //************* Private inner class ****************
@@ -160,14 +223,21 @@ public class HttpServer {
          * imidiatly. If the Netty bundle has not been started yet then this will get
          * called when the Netty bundle is started.
          *
-         * This is where all of the real work gets done for starting the server.
-         *
          * @param sr Service Referance to the netty service.
          * @return
          */
         @Override
         public Object addingService(ServiceReference sr) {
-            throw new UnsupportedOperationException("Not supported yet.");
+            log.debug("NETTY Service added to our tracker.");
+            ServerSocketChannelFactory sscFactory =
+                    (ServerSocketChannelFactory)context.getService(sr);
+            if(started.get()) {
+                log.debug("nettyTrackerCustomizer.addingService called when our server has already been started." +
+                        "This should not have happend! We are not restarting the server!");
+            } else {
+                startServer(sscFactory);
+            }
+            return sscFactory;
         }
 
         /**
@@ -180,7 +250,7 @@ public class HttpServer {
          */
         @Override
         public void modifiedService(ServiceReference sr, Object notused) {
-            throw new UnsupportedOperationException("Not supported yet.");
+            log.debug("nettyTrackerCustomizer.modified called not sure what I should do....");
         }
 
         /**
@@ -195,7 +265,12 @@ public class HttpServer {
          */
         @Override
         public void removedService(ServiceReference sr, Object notused) {
-            throw new UnsupportedOperationException("Not supported yet.");
+            log.debug("nettyTrackerCustomizer.removedService called Shutting down our server.");
+            if(started.get()) {
+                stopServer();
+            } else {
+                log.debug("nettyTrackerCustomizer.removedService called when the server has not been started!");
+            }
         }
 
     }

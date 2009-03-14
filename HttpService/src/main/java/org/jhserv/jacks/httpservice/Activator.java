@@ -44,7 +44,14 @@ public class Activator implements BundleActivator {
         logTracker = new LogTracker(context);
         logTracker.open();
         serviceFactory = new HttpManagedServiceFactory(context);
-        serviceFactory.start();
+        // Must run our serviceFactory start method in another thread because
+        // it may block/run slow.
+        Thread t = new Thread(new Runnable() {
+            public void run() {
+                serviceFactory.start();
+            }
+        });
+        t.start();
 
     }
 
