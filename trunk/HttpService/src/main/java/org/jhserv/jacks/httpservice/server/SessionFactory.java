@@ -1,5 +1,5 @@
 /*
- * Copyright 2008 Richard Jackson <richard.jackson@gmail.com>
+ * Copyright 2009 Richard Jackson <richard.jackson@gmail.com>
  *
  * This file is part of the org.jhserv.osgi.HttpService OSGi bundle
  *
@@ -21,29 +21,11 @@
 
 package org.jhserv.jacks.httpservice.server;
 
-import java.nio.charset.Charset;
-import org.jboss.netty.channel.ChannelHandlerContext;
-import org.jboss.netty.channel.ChannelPipelineCoverage;
-import org.jboss.netty.channel.MessageEvent;
-import org.jboss.netty.channel.SimpleChannelHandler;
-import org.jboss.netty.handler.codec.http.HttpResponse;
-import org.jhserv.jacks.httpservice.servicetracker.LogTracker;
-
 /**
+ * This class is responsible for creating and managing our sessions.
+ * 
  * @author rjackson
  */
-
-@ChannelPipelineCoverage("all")
-public class HttpResponseHandler extends SimpleChannelHandler {
-
-    // Log tracker
-    private final LogTracker log = LogTracker.getInstance();
-
-
-    @Override
-    public void messageReceived(ChannelHandlerContext ctx, MessageEvent e) throws Exception {
-        HttpResponse response = (HttpResponse) e.getMessage();
-        log.info(response.getContent().toString(Charset.defaultCharset().name()));
-    }
+public class SessionFactory {
 
 }
