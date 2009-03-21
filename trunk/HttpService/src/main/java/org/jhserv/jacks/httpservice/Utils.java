@@ -21,6 +21,8 @@
 
 package org.jhserv.jacks.httpservice;
 
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.util.Dictionary;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -35,8 +37,8 @@ public class Utils {
 
     /**
      * Very simple method that determins if the input string is a number and is
-     * not negative. 
-     * 
+     * not negative.
+     *
      * @param value
      * @return True if value is a number otherwise false.
      */
@@ -47,8 +49,8 @@ public class Utils {
 
     /**
      * Method used to validate ports. It first sees if the argument
-     * is a number then if it falls within the allowable port range 0-65535 
-     * 
+     * is a number then if it falls within the allowable port range 0-65535
+     *
      * @param value
      * @return True if this is a valid port number otherwise false.
      */
@@ -70,8 +72,8 @@ public class Utils {
     /**
      * Is a given string a IpAddress? Curretnly this only supports V4 IpAddress.
      * Also this does not fail private ip address ranges as our code may run
-     * on a private ip address. 
-     * 
+     * on a private ip address.
+     *
      * @param value
      * @return
      */
@@ -83,8 +85,8 @@ public class Utils {
     }
 
     /**
-     * Is the given string equal to either True or False (case insensitive) 
-     * 
+     * Is the given string equal to either True or False (case insensitive)
+     *
      * @param value
      * @return
      */
@@ -152,7 +154,7 @@ public class Utils {
                     if(!value.equals(value2)) {
                         String propNames = BundleConstants.CONFIG_OSGI_SECURE_PORT +
                                 " and " + BundleConstants.CONFIG_SSL_PORT;
-                        throw new ConfigurationException(propNames, 
+                        throw new ConfigurationException(propNames,
                                 "These must be equal if they are both defined.");
                     }
                 }
@@ -218,6 +220,14 @@ public class Utils {
             if(!isIpAddress(value)) {
                 throw new ConfigurationException(BundleConstants.CONFIG_IP_ADDRESS,
                         "Is not a valid IP Address");
+            }
+            // Lets see if we can create a IPAddress from this value. Better
+            // To catch this here than to blow up in server creation
+            try {
+            	InetAddress.getByName(value);
+            } catch(UnknownHostException e) {
+            	throw new ConfigurationException(BundleConstants.CONFIG_IP_ADDRESS,
+            			"Is not a valid IP Address");
             }
         }
 
