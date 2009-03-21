@@ -5,9 +5,9 @@
     <groupId>org.jhserv</groupId>
     <artifactId>org.jhserv.jacks.httpservice</artifactId>
     <version>0.1-SNAPSHOOT</version>
+    <packaging>bundle</packaging>
     <name>org.jhserv.jacks.httpservice</name>
     <description>OSGi HttpService Implementation</description>
-    <packaging>bundle</packaging>
     <url>http://maven.apache.org</url>
     <repositories>
         <repository>

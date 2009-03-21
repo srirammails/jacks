@@ -21,7 +21,9 @@
 
 package org.jhserv.jacks.httpservice.server;
 
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.UnknownHostException;
 import java.util.Dictionary;
 import java.util.Enumeration;
 import java.util.List;
@@ -34,6 +36,7 @@ import org.jboss.netty.bootstrap.ServerBootstrap;
 import org.jboss.netty.channel.Channel;
 import org.jboss.netty.channel.ChannelFactory;
 import org.jboss.netty.channel.socket.ServerSocketChannelFactory;
+import org.jhserv.jacks.httpservice.BundleConstants;
 import org.jhserv.jacks.httpservice.servicetracker.LogTracker;
 import org.osgi.framework.BundleContext;
 import org.osgi.framework.ServiceReference;
@@ -72,33 +75,38 @@ public class HttpServer {
      */
     private final AtomicBoolean started = new AtomicBoolean();
 
+    /**
+     * The ServerBootstrap instance we used to create our server with.
+     */
     private final AtomicReference<ServerBootstrap> serverBootstrap =
             new AtomicReference<ServerBootstrap>();
 
-
     /***
-     * Internal Configuration data for our server. This is basicly a copy of the
-     * configuration data gotton from the ConfigAdminService. We must have a
+     * Internal Configuration data for our server. This is basically a copy of the
+     * configuration data we got from the ConfigAdminService. We must have a
      * local copy of this so we can detect modifications to the configuration.
      */
     private final ConcurrentHashMap<String, String> config =
             new ConcurrentHashMap<String, String>();
 
-    private final Map<String, Channel> openChannels =
-            new ConcurrentHashMap<String, Channel>();
+    /**
+     * What Channel's have we opened?
+     */
+    private final Map<Integer, Channel> openChannels =
+            new ConcurrentHashMap<Integer, Channel>();
 
     public HttpServer(BundleContext context) {
         this.context = context;
     }
 
     /**
-     * Method to start our service. It should be noted that this method does 
-     * not actually setup our server it just starts the tracker which will then 
-     * start our server if the Netty service is avalilible.
+     * Method to start our service. It should be noted that this method does
+     * not actually setup our server it just starts the tracker which will then
+     * start our server if the Netty service is available.
      *
-     * @param config Server configuration data. The HttpManagedServiceFactory 
+     * @param config Server configuration data. The HttpManagedServiceFactory
      * which calls this method must ensure that this configuration data is valid
-     * befor calling this method. 
+     * before calling this method.
      */
     public void start(Dictionary config) {
 
@@ -133,7 +141,7 @@ public class HttpServer {
     }
 
     /**
-     * Get a list of ports used by this server. 
+     * Get a list of ports used by this server.
      * @return
      */
     public List<String> getPorts() {
@@ -149,10 +157,12 @@ public class HttpServer {
     }
 
     /**
-     * This method will only be called by the start method and then only if 
-     * we have not been already started. 
-     * 
-     * This just copies the supplied Dictionary into our local map. 
+     * This method will only be called by the start method and then only if
+     * we have not been already started.
+     *
+     * This just copies the supplied Dictionary into our local map. It will also
+     * populate the duplicate port names if they are not defined in the Dictionary.
+     * This is so the data is exposed on the service correctly.
      */
     private void copyConfig(Dictionary<String, String> cmConfig) {
         config.clear();
@@ -172,12 +182,33 @@ public class HttpServer {
         if(cmConfig.size() != config.size()) {
             log.error("When copying the Dictionary configiration data the element sizes did not match!");
         }
+
+        // Make sure both port properties are populated.
+        String value = config.get(BundleConstants.CONFIG_PORT);
+        if(value != null && !value.isEmpty()) {
+        	config.put(BundleConstants.CONFIG_OSGI_PORT, value);
+        } else {
+        	value = config.get(BundleConstants.CONFIG_OSGI_PORT);
+        	if(value != null && !value.isEmpty()) {
+        		config.put(BundleConstants.CONFIG_PORT, value);
+        	}
+        }
+        // Do ssl port now..
+        value = config.get(BundleConstants.CONFIG_SSL_PORT);
+        if(value != null && !value.isEmpty()) {
+        	config.put(BundleConstants.CONFIG_OSGI_SECURE_PORT, value);
+        } else {
+        	value = config.get(BundleConstants.CONFIG_OSGI_SECURE_PORT);
+        	if(value != null && !value.isEmpty()) {
+        		config.put(BundleConstants.CONFIG_SSL_PORT, value);
+        	}
+        }
     }
 
 
     /**
      * Used to start our server. This will be called by our tracker when the
-     * netty service is availible.
+     * netty service is available.
      *
      * @param factory
      */
@@ -187,22 +218,35 @@ public class HttpServer {
         HttpServerPipelineFactory pipeline =
                 new HttpServerPipelineFactory(new HttpRequestHandler());
           bootstrap.setPipelineFactory(pipeline);
-          // Need to fix this to configure our options..
-          bootstrap.setOption("child.tcpNoDelay", true);
-          bootstrap.setOption("child.keepAlive", true);
+          // Configure our server
+          InetSocketAddress[] ipAddress = buildSocketAddress();
+          setChannelOptions(bootstrap);
 
-          // Bind and start to accept incoming connections.
-          Channel sc = bootstrap.bind(new InetSocketAddress(8080));
-          openChannels.put("8080", sc);
-          started.set(true);
+          if(ipAddress[0] != null) {
+              log.debug("Binding ipAddress:port => " + ipAddress[0].toString());
+              Channel sc = bootstrap.bind(ipAddress[0]);
+              openChannels.put(new Integer(ipAddress[0].getPort()), sc);
+              started.set(true);
+          }
+
+          if(ipAddress[1] != null) {
+              log.debug("Binding ipAddress:port => " + ipAddress[1].toString());
+              Channel sc = bootstrap.bind(ipAddress[1]);
+              openChannels.put(new Integer(ipAddress[1].getPort()), sc);
+              started.set(true);
+          }
     }
 
+    /**
+     * Used to stop our server. This will be called by our tracker when the
+     * netty service goes away.
+     */
     private void stopServer() {
         log.debug("Stoping our server.");
         // Add code to stop our server here....
         if(!openChannels.isEmpty()) {
-            Set<String> ports = openChannels.keySet();
-            for(String key: ports) {
+            Set<Integer> ports = openChannels.keySet();
+            for(Integer key: ports) {
                 Channel sc = openChannels.remove(key);
                 sc.close().awaitUninterruptibly();
             }
@@ -214,16 +258,137 @@ public class HttpServer {
 
     }
 
-    //************* Private inner class ****************
+    /**
+     * This is used to read our configuration and build up to two InetSocketAddress
+     * that our server may bind to. Note: This method will be modified to at
+     * some point to do other addresses as well but for now it just supports
+     * two.
+     *
+     * @return InetSocketAddress[] where position 0 is a normal SocketAddress
+     * and position 1 is the SSL SocketAddress.
+     */
+    private InetSocketAddress[] buildSocketAddress() {
+    	InetSocketAddress[] result = new InetSocketAddress[2];
+
+    	String value = config.get(BundleConstants.CONFIG_IP_ADDRESS);
+        InetAddress ipAddress = null;
+        if(value != null && !value.isEmpty()) {
+      	  try {
+      		  ipAddress = InetAddress.getByName(value);
+      	  } catch(UnknownHostException e) {
+      		  log.error("We could not a InetAddress from the supplied IP in the configuration.");
+      		  log.error("We will bind to all address on this machine.");
+      		  ipAddress = null;
+      	  }
+        }
+        value = config.get(BundleConstants.CONFIG_PORT);
+        int nPort = -1;
+        int sslPort = -1;
+        if(value != null && !value.isEmpty()) {
+      	  nPort = Integer.parseInt(value);
+        }
+        value = config.get(BundleConstants.CONFIG_SSL_PORT);
+        if(value != null && !value.isEmpty()) {
+      	  sslPort = Integer.parseInt(value);
+        }
+
+        // Build our InetSocketAddress for both the normal port and the
+        // SSL port if it is defined.
+        if(ipAddress != null) {
+      	  if(nPort != -1) {
+      		  result[0] = new InetSocketAddress(ipAddress, nPort);
+      	  }
+      	  if(sslPort != -1) {
+      		  result[1] = new InetSocketAddress(ipAddress, sslPort);
+      	  }
+        } else {
+      	  if(nPort != -1) {
+      		  result[0] = new InetSocketAddress(nPort);
+      	  }
+      	  if(sslPort != -1) {
+      		  result[1] = new InetSocketAddress(sslPort);
+      	  }
+        }
+    	return result;
+    }
+
+    /**
+     * Set our ChannelOptions defined in our configuration.
+     *
+     * @param bootstrap
+     */
+    private void setChannelOptions(ServerBootstrap bootstrap) {
+
+    	// set tcpNoDelay
+    	String value = config.get(BundleConstants.CONFIG_TCP_NODELAY);
+    	if(value != null && !value.isEmpty()) {
+    		if(value.equalsIgnoreCase("true")) {
+    			bootstrap.setOption("child.tcpNoDelay", true);
+    		} else {
+    			bootstrap.setOption("child.tcpNoDelay", false);
+    		}
+    	} else {
+    		// Default to true
+    		bootstrap.setOption("child.tcpNoDelay", true);
+    	}
+
+    	// Set keepAlive
+    	value = config.get(BundleConstants.CONFIG_KEEP_ALIVE);
+    	if(value != null && !value.isEmpty()) {
+    		if(value.equalsIgnoreCase("true")) {
+    			bootstrap.setOption("child.keepAlive", true);
+    		} else {
+    			bootstrap.setOption("child.keepAlive", false);
+    		}
+    	} else {
+    		// Default to true
+    		bootstrap.setOption("child.keepAlive", true);
+    	}
+
+    	// Set reuseAddress
+    	value = config.get(BundleConstants.CONFIG_REUSE_ADDRESS);
+    	if(value != null && !value.isEmpty()) {
+    		if(value.equalsIgnoreCase("true")) {
+    			bootstrap.setOption("child.reuseAddress", true);
+    		} else {
+    			bootstrap.setOption("child.reuseAddress", false);
+    		}
+    	} else {
+    		// Default
+    		bootstrap.setOption("child.reuseAddress", true);
+    	}
+
+    	// Set connectionTimeout
+    	value = config.get(BundleConstants.CONFIG_CONNECT_TIMEOUT);
+    	if(value != null && !value.isEmpty()) {
+    		bootstrap.setOption("child.connectTimeoutMillis", Integer.parseInt(value));
+    	}
+
+    	// Set recieveBufferSize
+    	value = config.get(BundleConstants.CONFIG_RECEIVE_BUFFER_SIZE);
+    	if(value != null && !value.isEmpty()) {
+    		bootstrap.setOption("child.receiveBufferSize", Integer.parseInt(value));
+    	}
+
+    	// set sendBufferSize
+    	value = config.get(BundleConstants.CONFIG_SEND_BUFFER_SIZE);
+        if(value != null && !value.isEmpty()) {
+            bootstrap.setOption("child.sendBufferSize", Integer.parseInt(value));
+        }
+
+    }
+
+    //************* Private inner class ***************************************
+    //=========================================================================
     private class nettyTrackerCustomizer implements ServiceTrackerCustomizer {
 
         /**
-         * Called when the Netty ServerSocketChannelFactory service is made availible.
+         * Called when the Netty ServerSocketChannelFactory service is made available.
          * On bundle startup if the netty bundle is already loaded this will get called
-         * imidiatly. If the Netty bundle has not been started yet then this will get
+         * Immediately. If the Netty bundle has not been started yet then this will get
          * called when the Netty bundle is started.
          *
-         * @param sr Service Referance to the netty service.
+         * @param sr Service Reference to the netty service.
          * @return
          */
         @Override
