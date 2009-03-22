@@ -22,7 +22,11 @@
 package org.jhserv.jacks.httpservice.server;
 
 /**
- * This class is responsible for creating and managing our sessions.
+ * This class is responsible for creating and managing our sessions. An instance
+ * of this class is created for each of our servers.
+ *
+ * As per the OSGi specification sessions are bound to a particular HttpContext
+ * object so any servlet registered with the same HttpContext will share sessions.
  * 
  * @author rjackson
  */

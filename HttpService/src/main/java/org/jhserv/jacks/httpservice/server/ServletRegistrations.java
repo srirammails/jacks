@@ -48,16 +48,18 @@ public class ServletRegistrations {
      */
     private final Map<String, ServletExecuter> requestMap;
 
+    private final ServletRequestHandler handler;
+
     /**
      * List of all servlet instances registered. The OSGi HttpService spec states
      * that a servlet instance can only be registered one time. This is used to
      * enforce that. See section 102.2 of the OSGi HttpService spec.
      */
     private final List<Servlet> registeredServlets = new CopyOnWriteArrayList<Servlet>();
-
     
 
-    public ServletRegistrations(Map<String, ServletExecuter> requestMap) {
+    public ServletRegistrations(Map<String, ServletExecuter> requestMap, ServletRequestHandler handler) {
         this.requestMap = requestMap;
+        this.handler = handler;
     }
 }

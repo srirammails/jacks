@@ -21,7 +21,9 @@
 
 package org.jhserv.jacks.httpservice.servlet;
 
+import java.util.Date;
 import java.util.Enumeration;
+import java.util.concurrent.atomic.AtomicLong;
 import javax.servlet.ServletContext;
 import javax.servlet.http.HttpSession;
 import javax.servlet.http.HttpSessionContext;
@@ -32,14 +34,33 @@ import javax.servlet.http.HttpSessionContext;
  */
 public class HttpSessionImpl implements HttpSession {
 
+    /**
+     * Our session ID
+     */
+    private final String sessionID;
+    /**
+     * The time that this session was created.
+     */
+    private final long creationTime;
+
+    /**
+     * The last time this session was accessed.
+     */
+    private final AtomicLong lastAccessedTime = new AtomicLong();
+
+    public HttpSessionImpl(String sessionID) {
+        this.sessionID = sessionID;
+        creationTime = new Date().getTime();
+    }
+
     @Override
     public long getCreationTime() {
-        throw new UnsupportedOperationException("Not supported yet.");
+        return creationTime;
     }
 
     @Override
     public String getId() {
-        throw new UnsupportedOperationException("Not supported yet.");
+        return sessionID;
     }
 
     @Override

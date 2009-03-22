@@ -24,6 +24,8 @@ package org.jhserv.jacks.httpservice;
 import java.util.Dictionary;
 import javax.servlet.Servlet;
 import javax.servlet.ServletException;
+import org.jhserv.jacks.httpservice.server.ServletRegistrations;
+import org.osgi.framework.Bundle;
 import org.osgi.service.http.HttpContext;
 import org.osgi.service.http.HttpService;
 import org.osgi.service.http.NamespaceException;
@@ -36,6 +38,14 @@ import org.osgi.service.http.NamespaceException;
  * @author rjackson
  */
 public class HttpServiceImpl implements HttpService {
+
+    private final Bundle bundle;
+    private final ServletRegistrations registrations;
+
+    public HttpServiceImpl(Bundle bundle, ServletRegistrations registrations) {
+        this.bundle = bundle;
+        this.registrations = registrations;
+    }
 
     @Override
     public void registerServlet(String alias, Servlet servlet, Dictionary intparams,

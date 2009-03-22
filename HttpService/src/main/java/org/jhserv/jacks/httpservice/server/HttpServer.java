@@ -38,6 +38,7 @@ import org.jboss.netty.channel.ChannelFactory;
 import org.jboss.netty.channel.socket.ServerSocketChannelFactory;
 import org.jhserv.jacks.httpservice.BundleConstants;
 import org.jhserv.jacks.httpservice.servicetracker.LogTracker;
+import org.jhserv.jacks.httpservice.utils.ConcurrentDictionary;
 import org.osgi.framework.BundleContext;
 import org.osgi.framework.ServiceReference;
 import org.osgi.util.tracker.ServiceTracker;
@@ -86,8 +87,8 @@ public class HttpServer {
      * configuration data we got from the ConfigAdminService. We must have a
      * local copy of this so we can detect modifications to the configuration.
      */
-    private final ConcurrentHashMap<String, String> config =
-            new ConcurrentHashMap<String, String>();
+    private final Map<String, String> config =
+            new ConcurrentDictionary<String, String>();
 
     /**
      * What Channel's have we opened?
@@ -164,17 +165,20 @@ public class HttpServer {
      * populate the duplicate port names if they are not defined in the Dictionary.
      * This is so the data is exposed on the service correctly.
      */
-    private void copyConfig(Dictionary<String, String> cmConfig) {
+
+    private void copyConfig(Dictionary cmConfig) {
         config.clear();
 
-        Enumeration<String> keys = cmConfig.keys();
+        // I don't like this need to fix this.
+        @SuppressWarnings("unchecked")
+        Enumeration<String> keys = (Enumeration<String>)cmConfig.keys();
         while(keys.hasMoreElements()) {
             String key = keys.nextElement();
             log.debug("Found key : " + key);
             log.debug("Value : " + cmConfig.get(key));
             // Configuration Admin inserts some keys that we don't really care
             // about but it sets the value to null so we want to catch those.
-            String value = cmConfig.get(key);
+            String value = (String)cmConfig.get(key);
             if(value != null) {
                 config.put(key, value);
             }

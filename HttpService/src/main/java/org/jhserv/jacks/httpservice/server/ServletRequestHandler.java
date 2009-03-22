@@ -51,5 +51,5 @@ public class ServletRequestHandler extends SimpleChannelHandler {
      * The ServletRegistrations asciated with this handler.
      */
     private final ServletRegistrations servletRegistrations =
-            new ServletRegistrations(requestMap);
+            new ServletRegistrations(requestMap, this);
 }
