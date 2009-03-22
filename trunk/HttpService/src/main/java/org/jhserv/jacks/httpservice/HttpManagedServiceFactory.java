@@ -37,6 +37,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import org.jhserv.jacks.httpservice.servicetracker.LogTracker;
+import org.jhserv.jacks.httpservice.utils.ConcurrentDictionary;
 import org.osgi.framework.BundleContext;
 import org.osgi.framework.Constants;
 import org.osgi.framework.InvalidSyntaxException;
@@ -117,7 +118,7 @@ public class HttpManagedServiceFactory implements ManagedServiceFactory {
                 new cmTrackerCustomizer() );
         cmTracker.open();
 
-        Map<String, Properties> confMap = loadConfigFiles();
+        Map<String, ConcurrentDictionary<String, String>> confMap = loadConfigFiles();
 
         if(confMap.size() == 0) {
             confMap = loadDefaultConfig();
@@ -130,15 +131,11 @@ public class HttpManagedServiceFactory implements ManagedServiceFactory {
             // ConfiguationAdmin service will start to spawn threads and
             // call our updated method which will then register our
             // HttpService stuff..
-            Hashtable<String, String> properties = new Hashtable<String, String>();
-            properties.put( Constants.SERVICE_PID, factoryPid);
+            Hashtable<String, String> props = new Hashtable<String, String>();
+            props.put( Constants.SERVICE_PID, factoryPid);
             ServiceRegistration reg =
                     context.registerService(ManagedServiceFactory.class.getName(),
-                        this, properties);
-            if(reg == null) {
-                log.debug("The returned ServiceRegistration was null!!!!!");
-            }
-            log.debug("Setting our Registration in the Start method!!!!!");
+                        this, props);
             registration.set(reg);
             log.debug("HttpManagedService registered and started...");
             
@@ -156,7 +153,7 @@ public class HttpManagedServiceFactory implements ManagedServiceFactory {
 
             Set<String> keySet = confMap.keySet();
             for(String key: keySet) {
-                Properties props = confMap.get(key);
+                ConcurrentDictionary<String, String> props = confMap.get(key);
                 List<String> reqPorts = findReqPorts(props);
                 if(arePortsAvailable(reqPorts)) {
                     HttpServer server = new HttpServer(context);
@@ -331,8 +328,9 @@ public class HttpManagedServiceFactory implements ManagedServiceFactory {
      * the key). The return type will never be null. In the case that no config
      * files were found the map will be empty.
      */
-    private Map<String, Properties> loadConfigFiles() {
-        Map<String, Properties> confMap = new ConcurrentHashMap<String, Properties>();
+    private Map<String, ConcurrentDictionary<String, String>> loadConfigFiles() {
+        Map<String, ConcurrentDictionary<String, String>> confMap =
+                new ConcurrentHashMap<String, ConcurrentDictionary<String, String>>();
 
         File confDir = new File(BundleConstants.CONFIG_DIR);
         log.debug("Configuration File path : " + confDir.getAbsolutePath());
@@ -358,7 +356,10 @@ public class HttpManagedServiceFactory implements ManagedServiceFactory {
                     props.load(inFile);
                     Utils.validateConf(props);
                     String key = f.getName().split("\\.")[0];
-                    confMap.put(key, props);
+                    ConcurrentDictionary<String, String> dProps =
+                            new ConcurrentDictionary<String, String>(props);
+
+                    confMap.put(key, dProps);
                 } catch(IOException e) {
                     log.warn("Reading " + f.getAbsoluteFile() + " caused a IOException.", e);
                 } catch(ConfigurationException e) {
@@ -392,20 +393,22 @@ public class HttpManagedServiceFactory implements ManagedServiceFactory {
      *
      * @return
      */
-    private Map<String, Properties> loadDefaultConfig() {
-        Map<String, Properties> confMap = new ConcurrentHashMap<String, Properties>();
+    private Map<String, ConcurrentDictionary<String, String>> loadDefaultConfig() {
+        Map<String, ConcurrentDictionary<String, String>> confMap =
+                new ConcurrentHashMap<String, ConcurrentDictionary<String, String>>();
 
-        Properties props = new Properties();
+        ConcurrentDictionary<String, String> props = new ConcurrentDictionary<String, String>();
+        
         // See if the defined OSGi properties are defined in the system config.
         String tempProp = context.getProperty(BundleConstants.CONFIG_OSGI_PORT);
         if(tempProp != null && !tempProp.trim().isEmpty()) {
-            props.setProperty(BundleConstants.CONFIG_PORT, tempProp);
+            props.put(BundleConstants.CONFIG_PORT, tempProp);
         } else  {
-            props.setProperty(BundleConstants.CONFIG_PORT, BundleConstants.CONFIG_OSGI_PORT_DEFAULT);
+            props.put(BundleConstants.CONFIG_PORT, BundleConstants.CONFIG_OSGI_PORT_DEFAULT);
         }
         tempProp = context.getProperty(BundleConstants.CONFIG_OSGI_SECURE_PORT);
         if(tempProp != null && !tempProp.trim().isEmpty()) {
-            props.setProperty(BundleConstants.CONFIG_SSL_PORT, tempProp);
+            props.put(BundleConstants.CONFIG_SSL_PORT, tempProp);
         }
         // If the above is not set we will not set it by default.
         confMap.put(BundleConstants.CONFIG_PROPS_DEFAULT, props);
@@ -422,7 +425,7 @@ public class HttpManagedServiceFactory implements ManagedServiceFactory {
      * We need to do this before registering our factory or we could end up running
      * in circles. 
      */
-    private boolean cleanAndLoadCM(Map<String, Properties> confData) {
+    private boolean cleanAndLoadCM(Map<String, ConcurrentDictionary<String, String>> confData) {
         try {
 
             ConfigurationAdmin ca = (ConfigurationAdmin)cmTracker.getService();
@@ -433,14 +436,14 @@ public class HttpManagedServiceFactory implements ManagedServiceFactory {
                 log.debug("No Configuration data found in ConfigurationAdmin service. " +
                         "Adding configuration data found in config files or our default config.");
                 for(String confKey: confData.keySet()) {
-                    Properties props = confData.get(confKey);
+                    ConcurrentDictionary<String, String> props = confData.get(confKey);
                     Configuration caData = ca.createFactoryConfiguration(factoryPid);
                     caData.update(props);
                     log.debug("created new CM configuration...");
                     StringBuilder sb = new StringBuilder();
                     sb.append("What we added to ConfigAdmin;\n");
-                    for(String key: props.stringPropertyNames()) {
-                        String value = props.getProperty(key);
+                    for(String key: props.keySet()) {
+                        String value = props.get(key);
                         sb.append(key + " => " + value + "\n");
                     }
                     log.debug(sb.toString());
@@ -450,7 +453,7 @@ public class HttpManagedServiceFactory implements ManagedServiceFactory {
                 // Or replace it depending on flags in the configuration file.
                 log.debug("ConfigurationAdmin already has configuration data for us.");
                 for(Configuration caConf: caConfigArray) {
-                    Properties foundProp = findMatch(caConf, confData);
+                    ConcurrentDictionary<String, String> foundProp = findMatch(caConf, confData);
                     if(foundProp == null) {
                         log.debug("Found ConfigurationAdmin Configuration without matching loaded properties file." +
                                 "Leaving as is.");
@@ -461,7 +464,7 @@ public class HttpManagedServiceFactory implements ManagedServiceFactory {
                         caConf.delete();
                         continue;
                     }
-                    String blowAway = foundProp.getProperty(BundleConstants.CONFIG_OVERRIDE_ADMIN);
+                    String blowAway = foundProp.get(BundleConstants.CONFIG_OVERRIDE_ADMIN);
                     if(blowAway != null && blowAway.trim().equalsIgnoreCase("true")) {
                         log.debug("Replacing existing configuration with new configuration.");
                         // Need to test this the OSGi documentation is vauge on
@@ -496,16 +499,17 @@ public class HttpManagedServiceFactory implements ManagedServiceFactory {
      * @param confData
      * @return
      */
-    private Properties findMatch(Configuration cmConf, Map<String, Properties> confData) {
+    private ConcurrentDictionary<String, String>
+            findMatch(Configuration cmConf, Map<String, ConcurrentDictionary<String, String>> confData) {
 
         String port = (String)cmConf.getProperties().get(BundleConstants.CONFIG_PORT);
         if(port == null || port.trim().isEmpty()) {
             // We should not see this but just the same..
-            return new Properties();    // send back a empty property object.
+            return new ConcurrentDictionary<String, String>();    // send back a empty property object.
         }
         for(String mapKey: confData.keySet()) {
-            Properties props = confData.get(mapKey);
-            String confPort = props.getProperty(BundleConstants.CONFIG_PORT);
+            ConcurrentDictionary<String, String> props = confData.get(mapKey);
+            String confPort = props.get(BundleConstants.CONFIG_PORT);
             if(confPort == null || confPort.trim().isEmpty()) {
                 // Again we should not see this but just the same...
                 continue;
