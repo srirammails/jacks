@@ -93,8 +93,8 @@ public class HttpServer {
     /**
      * What Channel's have we opened?
      */
-    private final Map<Integer, Channel> openChannels =
-            new ConcurrentHashMap<Integer, Channel>();
+    private final Map<InetSocketAddress, Channel> openChannels =
+            new ConcurrentHashMap<InetSocketAddress, Channel>();
 
     public HttpServer(BundleContext context) {
         this.context = context;
@@ -123,7 +123,12 @@ public class HttpServer {
      */
     public void stop() {
         // NOTE: A side affect of stopping our tracker is that our server will
-        // be stoped as well.
+        // be stoped as well. BUG Note: Even though this is the case the problem
+        // is that a seperate thread will execute the events so we end up with
+        // a NPE because when our stopServer method actually gets called the
+        // tracker has been closed so we can't get our factory any more :(
+        // So we have to manually do the shutdown here as well.
+        stopServer();
         nettyTracker.close();
         serverBootstrap.set(null);
         config.clear();
@@ -229,14 +234,14 @@ public class HttpServer {
           if(ipAddress[0] != null) {
               log.debug("Binding ipAddress:port => " + ipAddress[0].toString());
               Channel sc = bootstrap.bind(ipAddress[0]);
-              openChannels.put(new Integer(ipAddress[0].getPort()), sc);
+              openChannels.put(ipAddress[0], sc);
               started.set(true);
           }
 
           if(ipAddress[1] != null) {
               log.debug("Binding ipAddress:port => " + ipAddress[1].toString());
               Channel sc = bootstrap.bind(ipAddress[1]);
-              openChannels.put(new Integer(ipAddress[1].getPort()), sc);
+              openChannels.put(ipAddress[1], sc);
               started.set(true);
           }
     }
@@ -249,12 +254,14 @@ public class HttpServer {
         log.debug("Stoping our server.");
         // Add code to stop our server here....
         if(!openChannels.isEmpty()) {
-            Set<Integer> ports = openChannels.keySet();
-            for(Integer key: ports) {
+            Set<InetSocketAddress> ports = openChannels.keySet();
+            for(InetSocketAddress key: ports) {
+                log.debug("Stoping channel => " + key.toString());
                 Channel sc = openChannels.remove(key);
                 sc.close().awaitUninterruptibly();
             }
             ChannelFactory factory = (ChannelFactory)nettyTracker.getService();
+            log.debug("Calling our factory to release External Resources..");
             factory.releaseExternalResources();
         }
         log.debug("Our server should be stopped now...");

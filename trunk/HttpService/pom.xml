@@ -2,7 +2,7 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
   xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
     <modelVersion>4.0.0</modelVersion>
-    <groupId>org.jhserv</groupId>
+    <groupId>org.jhserv.osgi</groupId>
     <artifactId>org.jhserv.jacks.httpservice</artifactId>
     <version>0.1-SNAPSHOOT</version>
     <packaging>bundle</packaging>
@@ -21,6 +21,11 @@
 
     <dependencies>
         <dependency>
+            <groupId>org.jhserv.osgi</groupId>
+            <artifactId>javax.servlet</artifactId>
+            <version>1.0</version>
+        </dependency>
+        <dependency>
             <groupId>org.apache.felix</groupId>
             <artifactId>org.osgi.core</artifactId>
             <version>1.2.0</version>
@@ -31,14 +36,9 @@
             <version>1.2.0</version>
         </dependency>
         <dependency>
-            <groupId>org.jhserv.osgi</groupId>
-            <artifactId>javax.servlet</artifactId>
-            <version>1.0</version>
-        </dependency>
-        <dependency>
             <groupId>org.jboss.netty</groupId>
             <artifactId>netty</artifactId>
-            <version>3.1.0.ALPHA4</version>
+            <version>3.1.0.BETA1</version>
         </dependency>
         <dependency>
             <groupId>junit</groupId>
@@ -49,6 +49,24 @@
     </dependencies>
     <build>
         <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>2.0-alpha-4</version>
+                <executions>
+                    <execution>
+                        <id>build-classpath</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>build-classpath</goal>
+                        </goals>
+                        <configuration>
+                            <cpfile>output.txt</cpfile>
+                            <stripVersion>true</stripVersion>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.apache.felix</groupId>
                 <artifactId>maven-bundle-plugin</artifactId>
